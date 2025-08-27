@@ -6,9 +6,9 @@ This code was written for a Raspberry Pi. i.
 # Software Structure
 
 The program parses a configuration file at start-up to set initial settings.
-Separate classes are used for each category of supported Zigbee devices, including smart bulbs,
-smart outlets, and sensors. These classes provide methods for controlling and reading the state of these devices.
-A timer is used take periodic sensor samples and to schedule on and off times for the smart bulbs and outlets.
+Separate classes are used for each category of devices, lights,
+fan, status, and automatic/manual interaction (action). These classes provide methods for controlling and reading the state of these devices.
+A timer is used to schedule on and off times for the lights and other devices. Schedule can be controlled by the main app 
 
 # Installation
 
