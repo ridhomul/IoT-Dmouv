@@ -8,15 +8,15 @@ This code was written for a Raspberry Pi. i.
 The program parses a configuration file at start-up to set initial settings.
 Separate classes are used for each category of devices, lights,
 fan, status, and automatic/manual interaction (action). These classes provide methods for controlling and reading the state of these devices.
-A timer is used to schedule on and off times for the lights and other devices. Schedule can be controlled by the main app 
+A timer is used to schedule on and off times for the lights and other devices. Schedule can be controlled by the main app
 
 # Installation
 
 This project was developed on a Raspberry Pi running
 [Raspberry Pi OS](https://www.raspberrypi.org/software/operating-systems/)
 (32-bit or 64-bit) and written in Python version 3.
-The code relies heavily on [Mosquitto MQTT](https://www.zigbee2mqtt.io/)
-to bridge a network of devices through MQTT (a common IoT networking protocol) and backend (node.js)
+The code relies heavily on [Mosquitto MQTT](https://mosquitto.org/)
+to bridge a network of devices through MQTT (a common IoT networking protocol) and backend (express)
 
 ## Install Mosquitto
 
