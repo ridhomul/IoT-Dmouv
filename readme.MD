@@ -32,7 +32,7 @@ configuration file to explicitly listen _only_ on the local loopback interface.
 This can be done by adding the following lines in `/etc/mosquitto/conf.d/local.conf`:
 
 ```bash
-listener 1883 127.0.0.1
+listener 1883 
 allow_anonymous true
 ```
 
@@ -88,7 +88,7 @@ Description=all
 After=network-online.target
 [Service]
 ExecStart=/bin/sh -c "/usr/bin/python3 all.py"
-WorkingDirectory=/home/cps/Dmouv
+WorkingDirectory=/home/cps/DMouv/yolov11n
 Restart=always
 User=cps
 [Install]
@@ -100,13 +100,13 @@ your default username and the directory where the Dmouv source files are install
 Finally, enable the Dmouv service as follows:
 
 ```bash
-sudo systemctl enable pi-home.service
+sudo systemctl enable DMove.service
 ```
 
 Reboot the computer and ensure that the service is started as expected. To check the status
 of the service, type:
 
 ```bash
-sudo systemctl status pi-home.service
+sudo systemctl status DMove.service
 ```
 test akun
