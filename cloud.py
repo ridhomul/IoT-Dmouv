@@ -14,14 +14,14 @@ MQTT_BROKER = "w916a671.ala.asia-southeast1.emqxsl.com"
 MQTT_PORT = 8883  # TLS/SSL port
 MQTT_USERNAME = os.environ['MQTT_USERNAME']  # Your EMQX Cloud username
 MQTT_PASSWORD = os.environ['MQTT_PASSWORD']  # Your EMQX Cloud password
-DEVICE_NAME = os.environ['DEVICE_NAME']
+SYSTEM_NAME = os.environ['SYSTEM_NAME']
 CLIENT_ID = f'python-mqtt-{random.randint(0, 1000)}'
 
 # MQTT Topics (same as before)
-STATUS_TOPIC = f"iot/{DEVICE_NAME}/status"
-SENSOR_TOPIC = f"iot/{DEVICE_NAME}/sensor"
-ACTION_TOPIC = f"iot/{DEVICE_NAME}/action"
-SETTINGS_UPDATE_TOPIC = f"iot/{DEVICE_NAME}/settings/update"
+STATUS_TOPIC = f"iot/{SYSTEM_NAME}/status"
+SENSOR_TOPIC = f"iot/{SYSTEM_NAME}/sensor"
+ACTION_TOPIC = f"iot/{SYSTEM_NAME}/action"
+SETTINGS_UPDATE_TOPIC = f"iot/{SYSTEM_NAME}/settings/update"
 
 # Initialize devices and model (same as before)
 try:
