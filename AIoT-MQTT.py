@@ -9,16 +9,11 @@ from ultralytics import YOLO
 from datetime import datetime
 from collections import deque
 
-MQTT_BROKER = "10.249.70.108"
-MQTT_BROKER = os.environ['MQTT_BROKER']
-MQTT_PORT = 1883
+MQTT_BROKER = "w916a671.ala.asia-southeast1.emqxsl.com"
+MQTT_PORT = 8883
 MQTT_USERNAME = "cpsmagang"
 MQTT_PASSWORD = "cpsjaya123"
-DEVICE_IP_ADDRESS = "10.249.70.108"
-
-MQTT_USERNAME = os.environ['MQTT_USERNAME']
-MQTT_PASSWORD = os.environ['MQTT_PASSWORD']
-DEVICE_IP_ADDRESS = os.environ['DEVICE_IP_ADDRESS']
+DEVICE_IP_ADDRESS = "dmouv"
 
 STATUS_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/status"
 SENSOR_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/sensor"
@@ -27,18 +22,6 @@ SETTINGS_UPDATE_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/settings/update"
 
 MOTION_CONFIG = {
     "enabled": True,
-    "detection_duration": 2.0,
-    "movement_threshold": 80.0,
-    "position_buffer_size": 15,
-    "confidence_threshold": 0.7,
-    "stable_detection_frames": 12,
-    "motion_cooldown": 3.0,
-    "min_movement_points": 5,
-    "relative_movement_threshold": 0.15,
-    "keypoint_stability_threshold": 0.05,
-    "min_stable_keypoints": 8
-}
-
     "detection_duration": 1.0,
     "movement_threshold": 85.0,
     "position_buffer_size": 15,
@@ -106,23 +89,16 @@ fps_buffer = []
 fps_avg_len = 50
 
 def get_stable_keypoints(keypoints):
-def get_stable_keypoints(keypoints):
     if keypoints is None or len(keypoints) == 0:
         return None
     
     kp = keypoints[0]
     stable_keypoints = []
-    stable_keypoints = []
     
     for i in range(len(kp)):
         if len(kp[i]) >= 3 and kp[i][2] > MOTION_CONFIG["confidence_threshold"]:
             stable_keypoints.append([kp[i][0], kp[i][1], kp[i][2]])
-            stable_keypoints.append([kp[i][0], kp[i][1], kp[i][2]])
     
-    return np.array(stable_keypoints) if len(stable_keypoints) >= MOTION_CONFIG["min_stable_keypoints"] else None
-
-def calculate_pose_center(stable_keypoints):
-    if stable_keypoints is None or len(stable_keypoints) == 0:
     return np.array(stable_keypoints) if len(stable_keypoints) >= MOTION_CONFIG["min_stable_keypoints"] else None
 
 def calculate_pose_center(stable_keypoints):
@@ -131,55 +107,9 @@ def calculate_pose_center(stable_keypoints):
         
     center_x = np.mean(stable_keypoints[:, 0])
     center_y = np.mean(stable_keypoints[:, 1])
-    center_x = np.mean(stable_keypoints[:, 0])
-    center_y = np.mean(stable_keypoints[:, 1])
     
     return (center_x, center_y)
 
-def calculate_relative_movement(current_keypoints, reference_keypoints):
-    if current_keypoints is None or reference_keypoints is None:
-        return 0.0
-    
-    if len(current_keypoints) != len(reference_keypoints):
-        return 0.0
-    
-    total_relative_movement = 0.0
-    valid_comparisons = 0
-    
-    for i in range(len(current_keypoints)):
-        curr_point = current_keypoints[i][:2]
-        ref_point = reference_keypoints[i][:2]
-        
-        distance = np.sqrt(np.sum((curr_point - ref_point) ** 2))
-        
-        reference_distance = np.sqrt(ref_point[0]**2 + ref_point[1]**2)
-        if reference_distance > 0:
-            relative_distance = distance / reference_distance
-            total_relative_movement += relative_distance
-            valid_comparisons += 1
-    
-    return total_relative_movement / valid_comparisons if valid_comparisons > 0 else 0.0
-
-def is_keypoints_stable(current_keypoints):
-    if len(motion_tracker["keypoint_history"]) < 3:
-        return False
-    
-    recent_keypoints = list(motion_tracker["keypoint_history"])[-3:]
-    
-    for i in range(1, len(recent_keypoints)):
-        if recent_keypoints[i] is None or recent_keypoints[i-1] is None:
-            return False
-        
-        if len(recent_keypoints[i]) != len(recent_keypoints[i-1]):
-            return False
-        
-        movement = calculate_relative_movement(recent_keypoints[i], recent_keypoints[i-1])
-        if movement > MOTION_CONFIG["keypoint_stability_threshold"]:
-            return False
-    
-    return True
-
-def detect_skeleton_motion():
 def calculate_relative_movement(current_keypoints, reference_keypoints):
     if current_keypoints is None or reference_keypoints is None:
         return 0.0
@@ -238,39 +168,12 @@ def detect_skeleton_motion():
     
     significant_movements = 0
     total_duration = 0
-    keypoint_history = list(motion_tracker["keypoint_history"])
-    
-    if len(keypoint_history) < 2:
-        return False
-    
-    significant_movements = 0
-    total_duration = 0
     
     for i in range(len(positions) - 1):
         if keypoint_history[i] is None or keypoint_history[i+1] is None:
             continue
             
-        if keypoint_history[i] is None or keypoint_history[i+1] is None:
-            continue
-            
         time_diff = timestamps[i+1] - timestamps[i]
-        if time_diff <= 0 or time_diff > MOTION_CONFIG["detection_duration"]:
-            continue
-        
-        relative_movement = calculate_relative_movement(keypoint_history[i+1], keypoint_history[i])
-        
-        position_distance = np.sqrt(
-            (positions[i+1][0] - positions[i][0])**2 + 
-            (positions[i+1][1] - positions[i][1])**2
-        )
-        
-        if (relative_movement > MOTION_CONFIG["relative_movement_threshold"] and 
-            position_distance > MOTION_CONFIG["movement_threshold"]):
-            significant_movements += 1
-            total_duration += time_diff
-    
-    return (significant_movements >= MOTION_CONFIG["min_movement_points"] and 
-            total_duration >= MOTION_CONFIG["detection_duration"])
         if time_diff <= 0 or time_diff > MOTION_CONFIG["detection_duration"]:
             continue
         
@@ -296,11 +199,7 @@ def update_motion_detection(keypoints):
     stable_keypoints = get_stable_keypoints(keypoints)
     
     motion_tracker["keypoint_history"].append(stable_keypoints)
-    stable_keypoints = get_stable_keypoints(keypoints)
     
-    motion_tracker["keypoint_history"].append(stable_keypoints)
-    
-    if stable_keypoints is not None:
     if stable_keypoints is not None:
         motion_tracker["person_detected"] = True
         
@@ -313,26 +212,7 @@ def update_motion_detection(keypoints):
         if center_point is not None:
             motion_tracker["person_positions"].append(center_point)
             motion_tracker["position_timestamps"].append(current_time)
-        if is_keypoints_stable(stable_keypoints):
-            motion_tracker["stable_pose_count"] += 1
-        else:
-            motion_tracker["stable_pose_count"] = 0
         
-        center_point = calculate_pose_center(stable_keypoints)
-        if center_point is not None:
-            motion_tracker["person_positions"].append(center_point)
-            motion_tracker["position_timestamps"].append(current_time)
-        
-        if motion_tracker["stable_pose_count"] >= 5:
-            if detect_skeleton_motion():
-                if not motion_tracker["is_motion_detected"]:
-                    motion_tracker["motion_start_time"] = current_time
-                    motion_tracker["is_motion_detected"] = True
-                
-                motion_tracker["last_motion_time"] = current_time
-                
-                if (current_time - motion_tracker["motion_start_time"]) >= MOTION_CONFIG["detection_duration"]:
-                    motion_tracker["motion_triggered"] = True
         if motion_tracker["stable_pose_count"] >= 5:
             if detect_skeleton_motion():
                 if not motion_tracker["is_motion_detected"]:
@@ -347,7 +227,6 @@ def update_motion_detection(keypoints):
     else:
         motion_tracker["person_detected"] = False
         motion_tracker["stable_pose_count"] = 0
-        motion_tracker["stable_pose_count"] = 0
         
         if (motion_tracker["last_motion_time"] and 
             current_time - motion_tracker["last_motion_time"] > MOTION_CONFIG["motion_cooldown"]):
@@ -361,6 +240,7 @@ def on_connect(client, userdata, flags, rc, properties=None):
         client.subscribe(SETTINGS_UPDATE_TOPIC)
         status_payload = json.dumps({"status": "online"})
         client.publish(STATUS_TOPIC, status_payload)
+        print(f"terhubung")
 
 def on_message(client, userdata, msg):
     global devices
@@ -395,7 +275,6 @@ def on_message(client, userdata, msg):
 
     except Exception as e:
         pass
-        pass
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
@@ -424,14 +303,11 @@ try:
 
         if pose_found:
             consecutive_detections = min(consecutive_detections + 1, 15)
-            consecutive_detections = min(consecutive_detections + 1, 15)
         else:
             consecutive_detections = max(consecutive_detections - 1, 0)
         
         if MOTION_CONFIG["enabled"]:
             should_be_active = (consecutive_detections >= MOTION_CONFIG["stable_detection_frames"] and 
-                              motion_tracker["motion_triggered"] and
-                              motion_tracker["stable_pose_count"] >= 5)
                               motion_tracker["motion_triggered"] and
                               motion_tracker["stable_pose_count"] >= 5)
         else:
@@ -483,7 +359,6 @@ try:
                         device["instance"].off()
                         device["state"] = 0
 
-
         y_pos = 30
         for name, device in devices.items():
             mode_text = f"{name.upper()} Mode: {device['mode'].upper()}"
@@ -509,7 +384,6 @@ try:
         cv2.imshow("Smart Detection", annotated_frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
-
 
 finally:
     status_payload = json.dumps({"status": "offline"})
