@@ -1,7 +1,7 @@
 # Dmouv
 
 Dmouv is a home automation program using a Raspberry Pi connected to lights and fan
-This code was written for a Raspberry Pi. i.
+This code was written for a Raspberry Pi.
 
 # Software Structure
 
