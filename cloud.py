@@ -14,13 +14,14 @@ MQTT_BROKER = "w916a671.ala.asia-southeast1.emqxsl.com"
 MQTT_PORT = 8883  # TLS/SSL port
 MQTT_USERNAME = os.environ['MQTT_USERNAME']  # Your EMQX Cloud username
 MQTT_PASSWORD = os.environ['MQTT_PASSWORD']  # Your EMQX Cloud password
-DEVICE_IP_ADDRESS = os.environ['DEVICE_IP_ADDRESS']
+DEVICE_NAME = os.environ['DEVICE_NAME']
+CLIENT_ID = f'python-mqtt-{random.randint(0, 1000)}'
 
 # MQTT Topics (same as before)
-STATUS_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/status"
-SENSOR_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/sensor"
-ACTION_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/action"
-SETTINGS_UPDATE_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/settings/update"
+STATUS_TOPIC = f"iot/{DEVICE_NAME}/status"
+SENSOR_TOPIC = f"iot/{DEVICE_NAME}/sensor"
+ACTION_TOPIC = f"iot/{DEVICE_NAME}/action"
+SETTINGS_UPDATE_TOPIC = f"iot/{DEVICE_NAME}/settings/update"
 
 # Initialize devices and model (same as before)
 try:
@@ -147,7 +148,7 @@ context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
 # context.check_hostname = True
 # context.verify_mode = ssl.CERT_REQUIRED
 
-# For testing purposes, you can disable certificate verification
+# testing bisa abaikan sertifikat
 context.check_hostname = False
 context.verify_mode = ssl.CERT_NONE
 
