@@ -109,3 +109,4 @@ of the service, type:
 ```bash
 sudo systemctl status pi-home.service
 ```
+test akun
