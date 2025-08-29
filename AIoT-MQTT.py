@@ -9,43 +9,31 @@ from ultralytics import YOLO
 from datetime import datetime
 from collections import deque
 
-#config
 MQTT_BROKER = os.environ['MQTT_BROKER']
 MQTT_PORT = 1883
 MQTT_USERNAME = os.environ['MQTT_USERNAME']
 MQTT_PASSWORD = os.environ['MQTT_PASSWORD']
 DEVICE_IP_ADDRESS = os.environ['DEVICE_IP_ADDRESS']
 
-# TOPIK MQTT yang dipake
 STATUS_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/status"
 SENSOR_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/sensor"
 ACTION_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/action"
 SETTINGS_UPDATE_TOPIC = f"iot/{DEVICE_IP_ADDRESS}/settings/update"
 
-# Motion Detection Configuration
 MOTION_CONFIG = {
     "enabled": True,
-    "detection_duration": 3.0,
-    "movement_threshold": 30.0,
-    "position_buffer_size": 30,
-    "confidence_threshold": 0.5,
-    "stable_detection_frames": 8,
-    "motion_cooldown": 2.0,
-    "min_movement_points": 3,
-    "motion_sensitivity": "medium"
+    "detection_duration": 2.0,
+    "movement_threshold": 80.0,
+    "position_buffer_size": 15,
+    "confidence_threshold": 0.7,
+    "stable_detection_frames": 12,
+    "motion_cooldown": 3.0,
+    "min_movement_points": 5,
+    "relative_movement_threshold": 0.15,
+    "keypoint_stability_threshold": 0.05,
+    "min_stable_keypoints": 8
 }
 
-if MOTION_CONFIG["motion_sensitivity"] == "low":
-    MOTION_CONFIG["movement_threshold"] = 50.0
-    MOTION_CONFIG["detection_duration"] = 5.0
-elif MOTION_CONFIG["motion_sensitivity"] == "high":
-    MOTION_CONFIG["movement_threshold"] = 15.0
-    MOTION_CONFIG["detection_duration"] = 1.5
-else:
-    MOTION_CONFIG["movement_threshold"] = 30.0
-    MOTION_CONFIG["detection_duration"] = 3.0
-
-# Inisialisasi Perangkat dan Model
 try:
     model_pose = YOLO("yolo11n-pose_ncnn_model", task="pose")
     cam_source = "usb0"
@@ -73,11 +61,14 @@ try:
     motion_tracker = {
         "person_positions": deque(maxlen=MOTION_CONFIG["position_buffer_size"]),
         "position_timestamps": deque(maxlen=MOTION_CONFIG["position_buffer_size"]),
+        "keypoint_history": deque(maxlen=MOTION_CONFIG["position_buffer_size"]),
         "is_motion_detected": False,
         "motion_start_time": None,
         "last_motion_time": None,
         "person_detected": False,
-        "motion_triggered": False
+        "motion_triggered": False,
+        "stable_pose_count": 0,
+        "reference_keypoints": None
     }
 
     if "usb" in cam_source:
@@ -86,93 +77,156 @@ try:
         cam.set(3, resW)
         cam.set(4, resH)
         if not cam.isOpened():
-            print("Gagal membuka kamera.")
             exit()
     else:
-        print("Tidak ada kamera terdeteksi.")
         exit()
-    print("Kamera siap.")
 
 except Exception as e:
-    print(f"Error saat inisialisasi: {e}")
     exit()
 
 consecutive_detections = 0
 fps_buffer = []
 fps_avg_len = 50
 
-def calculate_center_keypoint(keypoints):
+def get_stable_keypoints(keypoints):
     if keypoints is None or len(keypoints) == 0:
         return None
     
     kp = keypoints[0]
+    stable_keypoints = []
     
-    valid_points = []
     for i in range(len(kp)):
         if len(kp[i]) >= 3 and kp[i][2] > MOTION_CONFIG["confidence_threshold"]:
-            valid_points.append((kp[i][0], kp[i][1]))
+            stable_keypoints.append([kp[i][0], kp[i][1], kp[i][2]])
     
-    if not valid_points:
+    return np.array(stable_keypoints) if len(stable_keypoints) >= MOTION_CONFIG["min_stable_keypoints"] else None
+
+def calculate_pose_center(stable_keypoints):
+    if stable_keypoints is None or len(stable_keypoints) == 0:
         return None
         
-    center_x = sum([p[0] for p in valid_points]) / len(valid_points)
-    center_y = sum([p[1] for p in valid_points]) / len(valid_points)
+    center_x = np.mean(stable_keypoints[:, 0])
+    center_y = np.mean(stable_keypoints[:, 1])
     
     return (center_x, center_y)
 
-def detect_motion():
+def calculate_relative_movement(current_keypoints, reference_keypoints):
+    if current_keypoints is None or reference_keypoints is None:
+        return 0.0
+    
+    if len(current_keypoints) != len(reference_keypoints):
+        return 0.0
+    
+    total_relative_movement = 0.0
+    valid_comparisons = 0
+    
+    for i in range(len(current_keypoints)):
+        curr_point = current_keypoints[i][:2]
+        ref_point = reference_keypoints[i][:2]
+        
+        distance = np.sqrt(np.sum((curr_point - ref_point) ** 2))
+        
+        reference_distance = np.sqrt(ref_point[0]**2 + ref_point[1]**2)
+        if reference_distance > 0:
+            relative_distance = distance / reference_distance
+            total_relative_movement += relative_distance
+            valid_comparisons += 1
+    
+    return total_relative_movement / valid_comparisons if valid_comparisons > 0 else 0.0
+
+def is_keypoints_stable(current_keypoints):
+    if len(motion_tracker["keypoint_history"]) < 3:
+        return False
+    
+    recent_keypoints = list(motion_tracker["keypoint_history"])[-3:]
+    
+    for i in range(1, len(recent_keypoints)):
+        if recent_keypoints[i] is None or recent_keypoints[i-1] is None:
+            return False
+        
+        if len(recent_keypoints[i]) != len(recent_keypoints[i-1]):
+            return False
+        
+        movement = calculate_relative_movement(recent_keypoints[i], recent_keypoints[i-1])
+        if movement > MOTION_CONFIG["keypoint_stability_threshold"]:
+            return False
+    
+    return True
+
+def detect_skeleton_motion():
     if not MOTION_CONFIG["enabled"] or len(motion_tracker["person_positions"]) < MOTION_CONFIG["min_movement_points"]:
         return False
     
     current_time = time.time()
     
-    motion_duration = 0
-    total_movement = 0
-    movement_count = 0
-    
     positions = list(motion_tracker["person_positions"])
     timestamps = list(motion_tracker["position_timestamps"])
+    keypoint_history = list(motion_tracker["keypoint_history"])
+    
+    if len(keypoint_history) < 2:
+        return False
+    
+    significant_movements = 0
+    total_duration = 0
     
     for i in range(len(positions) - 1):
-        time_diff = timestamps[i+1] - timestamps[i]
-        if time_diff > 0 and time_diff <= MOTION_CONFIG["detection_duration"]:
-            dx = positions[i+1][0] - positions[i][0]
-            dy = positions[i+1][1] - positions[i][1]
-            distance = np.sqrt(dx*dx + dy*dy)
+        if keypoint_history[i] is None or keypoint_history[i+1] is None:
+            continue
             
-            if distance > MOTION_CONFIG["movement_threshold"]:
-                motion_duration += time_diff
-                total_movement += distance
-                movement_count += 1
+        time_diff = timestamps[i+1] - timestamps[i]
+        if time_diff <= 0 or time_diff > MOTION_CONFIG["detection_duration"]:
+            continue
+        
+        relative_movement = calculate_relative_movement(keypoint_history[i+1], keypoint_history[i])
+        
+        position_distance = np.sqrt(
+            (positions[i+1][0] - positions[i][0])**2 + 
+            (positions[i+1][1] - positions[i][1])**2
+        )
+        
+        if (relative_movement > MOTION_CONFIG["relative_movement_threshold"] and 
+            position_distance > MOTION_CONFIG["movement_threshold"]):
+            significant_movements += 1
+            total_duration += time_diff
     
-    return (motion_duration >= MOTION_CONFIG["detection_duration"] and 
-            total_movement > MOTION_CONFIG["movement_threshold"] and
-            movement_count >= MOTION_CONFIG["min_movement_points"])
+    return (significant_movements >= MOTION_CONFIG["min_movement_points"] and 
+            total_duration >= MOTION_CONFIG["detection_duration"])
 
 def update_motion_detection(keypoints):
     global motion_tracker
     
     current_time = time.time()
-    center_point = calculate_center_keypoint(keypoints)
+    stable_keypoints = get_stable_keypoints(keypoints)
     
-    if center_point is not None:
+    motion_tracker["keypoint_history"].append(stable_keypoints)
+    
+    if stable_keypoints is not None:
         motion_tracker["person_detected"] = True
         
-        motion_tracker["person_positions"].append(center_point)
-        motion_tracker["position_timestamps"].append(current_time)
+        if is_keypoints_stable(stable_keypoints):
+            motion_tracker["stable_pose_count"] += 1
+        else:
+            motion_tracker["stable_pose_count"] = 0
         
-        if detect_motion():
-            if not motion_tracker["is_motion_detected"]:
-                motion_tracker["motion_start_time"] = current_time
-                motion_tracker["is_motion_detected"] = True
-            
-            motion_tracker["last_motion_time"] = current_time
-            
-            if (current_time - motion_tracker["motion_start_time"]) >= MOTION_CONFIG["detection_duration"]:
-                motion_tracker["motion_triggered"] = True
+        center_point = calculate_pose_center(stable_keypoints)
+        if center_point is not None:
+            motion_tracker["person_positions"].append(center_point)
+            motion_tracker["position_timestamps"].append(current_time)
+        
+        if motion_tracker["stable_pose_count"] >= 5:
+            if detect_skeleton_motion():
+                if not motion_tracker["is_motion_detected"]:
+                    motion_tracker["motion_start_time"] = current_time
+                    motion_tracker["is_motion_detected"] = True
+                
+                motion_tracker["last_motion_time"] = current_time
+                
+                if (current_time - motion_tracker["motion_start_time"]) >= MOTION_CONFIG["detection_duration"]:
+                    motion_tracker["motion_triggered"] = True
         
     else:
         motion_tracker["person_detected"] = False
+        motion_tracker["stable_pose_count"] = 0
         
         if (motion_tracker["last_motion_time"] and 
             current_time - motion_tracker["last_motion_time"] > MOTION_CONFIG["motion_cooldown"]):
@@ -182,21 +236,13 @@ def update_motion_detection(keypoints):
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
-        print(f"Terhubung ke MQTT Broker di {MQTT_BROKER}!")
         client.subscribe(ACTION_TOPIC)
-        print(f"SUBSCRIBE ke topik aksi: {ACTION_TOPIC}")
         client.subscribe(SETTINGS_UPDATE_TOPIC)
-        print(f"SUBSCRIBE ke topik settings: {SETTINGS_UPDATE_TOPIC}")
-
         status_payload = json.dumps({"status": "online"})
         client.publish(STATUS_TOPIC, status_payload)
-        print(f"PUBLISH: Mengirim status ONLINE ke {STATUS_TOPIC}")
-    else:
-        print(f"Gagal terhubung ke MQTT, kode error: {rc}")
 
 def on_message(client, userdata, msg):
     global devices
-    print(f"PESAN DITERIMA di topik {msg.topic}")
     try:
         payload = json.loads(msg.payload.decode())
         
@@ -212,7 +258,6 @@ def on_message(client, userdata, msg):
                 elif action == "turn_off":
                     devices[device_name]["instance"].off()
                     devices[device_name]["state"] = 0
-                print(f"AKSI MANUAL: '{action}' pada '{device_name}'. Mode diubah ke MANUAL.")
         
         elif msg.topic == SETTINGS_UPDATE_TOPIC:
             device_name = payload.get("device")
@@ -221,17 +266,14 @@ def on_message(client, userdata, msg):
                     new_mode = payload["mode"]
                     if new_mode in ["auto", "manual", "scheduled"]:
                         devices[device_name]["mode"] = new_mode
-                        print(f"SETTINGS UPDATE: Mode '{device_name}' diubah menjadi {new_mode.upper()}")
                 
                 if "schedule_on" in payload:
                     devices[device_name]["schedule_on"] = payload["schedule_on"]
-                    print(f"SETTINGS UPDATE: Jadwal ON '{device_name}' diatur ke {payload['schedule_on']}")
                 if "schedule_off" in payload:
                     devices[device_name]["schedule_off"] = payload["schedule_off"]
-                    print(f"SETTINGS UPDATE: Jadwal OFF '{device_name}' diatur ke {payload['schedule_off']}")
 
     except Exception as e:
-        print(f"Error memproses pesan: {e}")
+        pass
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
@@ -244,13 +286,11 @@ client.will_set(STATUS_TOPIC, payload=last_will_payload, qos=1, retain=True)
 client.connect(MQTT_BROKER, MQTT_PORT, 60)
 client.loop_start()
 
-print("\nSistem deteksi mulai berjalan. Tekan 'Q' untuk berhenti.")
 try:
     while True:
         t_start = time.perf_counter()
         ret, frame = cam.read()
         if not ret:
-            print("Peringatan: Gagal mengambil frame.")
             break
 
         results = model_pose.predict(frame, verbose=False)
@@ -261,13 +301,14 @@ try:
         update_motion_detection(keypoints)
 
         if pose_found:
-            consecutive_detections = min(consecutive_detections + 1, 10)
+            consecutive_detections = min(consecutive_detections + 1, 15)
         else:
             consecutive_detections = max(consecutive_detections - 1, 0)
         
         if MOTION_CONFIG["enabled"]:
             should_be_active = (consecutive_detections >= MOTION_CONFIG["stable_detection_frames"] and 
-                              motion_tracker["motion_triggered"])
+                              motion_tracker["motion_triggered"] and
+                              motion_tracker["stable_pose_count"] >= 5)
         else:
             should_be_active = consecutive_detections >= MOTION_CONFIG["stable_detection_frames"]
         
@@ -316,6 +357,7 @@ try:
                     if device["state"] == 1:
                         device["instance"].off()
                         device["state"] = 0
+
         y_pos = 30
         for name, device in devices.items():
             mode_text = f"{name.upper()} Mode: {device['mode'].upper()}"
@@ -341,11 +383,10 @@ try:
         cv2.imshow("Smart Detection", annotated_frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+
 finally:
-    print("\nMembersihkan sumber daya...")
     status_payload = json.dumps({"status": "offline"})
     client.publish(STATUS_TOPIC, status_payload)
-    print(f"PUBLISH: Mengirim status OFFLINE ke {STATUS_TOPIC}")
     time.sleep(0.5)
 
     cam.release()
@@ -354,4 +395,3 @@ finally:
         device["instance"].close()
     client.loop_stop()
     client.disconnect()
-    print("Selesai.")
