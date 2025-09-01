@@ -2,6 +2,7 @@ import cv2
 import os
 import time
 import json
+import ssl
 import numpy as np
 import paho.mqtt.client as mqtt
 from gpiozero import LED
@@ -236,11 +237,28 @@ def update_motion_detection(keypoints):
 
 def on_connect(client, userdata, flags, rc, properties=None):
     if rc == 0:
+        print(f"Terhubung ke EMQX Cloud di {MQTT_BROKER}!")
         client.subscribe(ACTION_TOPIC)
+        print(f"SUBSCRIBE ke topik aksi: {ACTION_TOPIC}")
         client.subscribe(SETTINGS_UPDATE_TOPIC)
+        print(f"SUBSCRIBE ke topik settings: {SETTINGS_UPDATE_TOPIC}")
+
         status_payload = json.dumps({"status": "online"})
         client.publish(STATUS_TOPIC, status_payload)
-        print(f"terhubung")
+        print(f"PUBLISH: Mengirim status ONLINE ke {STATUS_TOPIC}")
+    else:
+        print(f"Gagal terhubung ke EMQX Cloud, kode error: {rc}")
+        if rc == 1:
+            print("Error: Incorrect protocol version")
+        elif rc == 2:
+            print("Error: Invalid client identifier")
+        elif rc == 3:
+            print("Error: Server unavailable")
+        elif rc == 4:
+            print("Error: Bad username or password")
+        elif rc == 5:
+            print("Error: Not authorized")
+
 
 def on_message(client, userdata, msg):
     global devices
@@ -281,11 +299,27 @@ client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
 client.on_connect = on_connect
 client.on_message = on_message
 
+context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+# For production, you might want to verify certificates
+# context.check_hostname = True
+# context.verify_mode = ssl.CERT_REQUIRED
+
+context.check_hostname = False
+context.verify_mode = ssl.CERT_NONE
+
+client.tls_set_context(context)
+
+# Set last will and testament
 last_will_payload = json.dumps({"status": "offline"})
 client.will_set(STATUS_TOPIC, payload=last_will_payload, qos=1, retain=True)
 
-client.connect(MQTT_BROKER, MQTT_PORT, 60)
-client.loop_start()
+try:
+    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    client.loop_start()
+    print("Connecting to EMQX Cloud...")
+except Exception as e:
+    print(f"Error connecting to EMQX Cloud: {e}")
+    exit()
 
 try:
     while True:
