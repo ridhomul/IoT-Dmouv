@@ -32,7 +32,8 @@ MOTION_CONFIG = {
     "min_movement_points": 3,
     "relative_movement_threshold": 0.15,
     "keypoint_stability_threshold": 0.05,
-    "min_stable_keypoints": 5
+    "min_stable_keypoints": 5,
+    "auto_off_delay": 10.0
 }
 
 try:
@@ -47,7 +48,8 @@ try:
             "mode": "auto", 
             "schedule_on": None, 
             "schedule_off": None,
-            "is_person_reported": False
+            "is_person_reported": False,
+            "no_motion_start_time": None
         },
         "fan": {
             "instance": LED(19),
@@ -55,7 +57,8 @@ try:
             "mode": "auto",
             "schedule_on": None,
             "schedule_off": None,
-            "is_person_reported": False
+            "is_person_reported": False,
+            "no_motion_start_time": None
         }
     }
 
@@ -259,7 +262,6 @@ def on_connect(client, userdata, flags, rc, properties=None):
         elif rc == 5:
             print("Error: Not authorized")
 
-
 def on_message(client, userdata, msg):
     global devices
     try:
@@ -350,15 +352,21 @@ try:
         should_be_inactive = consecutive_detections <= 0 or not motion_tracker["person_detected"]
         
         now = datetime.now().time()
+        current_time = time.time()
 
         for name, device in devices.items():
             if device["mode"] == "auto":
                 if should_be_active and device["state"] == 0:
                     device["instance"].on()
                     device["state"] = 1
+                    device["no_motion_start_time"] = None
                 elif should_be_inactive and device["state"] == 1:
-                    device["instance"].off()
-                    device["state"] = 0
+                    if device["no_motion_start_time"] is None:
+                        device["no_motion_start_time"] = current_time
+                    elif current_time - device["no_motion_start_time"] >= MOTION_CONFIG["auto_off_delay"]:
+                        device["instance"].off()
+                        device["state"] = 0
+                        device["no_motion_start_time"] = None
 
                 if should_be_active and not device["is_person_reported"]:
                     device["is_person_reported"] = True
